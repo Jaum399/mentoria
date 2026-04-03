@@ -520,63 +520,6 @@ const testDatabaseIntegration = () => {
 // Executar teste de integração após 2 segundos
 setTimeout(testDatabaseIntegration, 2000);
 
-// 🔐 Validação de Entrada - Funções Auxiliares
-const validators = {
-  // Validar email
-  isValidEmail: (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email) && email.length <= 255;
-  },
-  
-  // Validar força de senha
-  isStrongPassword: (password) => {
-    // Mínimo 8 caracteres, 1 maiúscula, 1 número, 1 caractere especial
-    const regex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    return regex.test(password);
-  },
-  
-  // Validar username
-  isValidUsername: (username) => {
-    // 3-50 caracteres, apenas letras, números, _, -
-    const regex = /^[a-zA-Z0-9_-]{3,50}$/;
-    return regex.test(username) && username.length >= 3 && username.length <= 50;
-  },
-  
-  // Validar telefone brasileiro
-  isValidPhone: (phone) => {
-    // +55 + DDD + 8-9 dígitos
-    const regex = /^\+55\d{2}9?\d{8,9}$/;
-    return regex.test(phone.replace(/[\s-()]/g, ''));
-  },
-  
-  // Validar horário (HH:MM)
-  isValidTime: (time) => {
-    const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    return regex.test(time);
-  },
-  
-  // Validar data ISO (YYYY-MM-DD)
-  isValidDate: (dateStr) => {
-    const regex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!regex.test(dateStr)) return false;
-    const date = new Date(dateStr);
-    return date instanceof Date && !isNaN(date);
-  },
-  
-  // Validar data futura
-  isFutureDate: (dateStr) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    return date > now;
-  },
-  
-  // Limpar e validar string
-  sanitizeString: (str, maxLength = 255) => {
-    if (typeof str !== 'string') return '';
-    return str.trim().substring(0, maxLength);
-  }
-};
-
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token não encontrado.' });
