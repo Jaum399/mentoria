@@ -1,0 +1,416 @@
+/* 🎨 ESTILOS MELHORADOS - Validações e UX */
+
+/* 📢 Toast Notifications */
+#notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 400px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 10px;
+  color: white;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  animation: slideInRight 0.3s ease-out;
+  pointer-events: auto;
+}
+
+.toast-success { background-color: #43c4a1; }
+.toast-error { background-color: #ff5a66; }
+.toast-warning { background-color: #ffa500; }
+.toast-info { background-color: #47b5ff; }
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0;
+  margin-left: 12px;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  opacity: 0.8;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+}
+
+.toast.removing {
+  animation: slideOutRight 0.3s ease-out forwards;
+}
+
+/* 🔐 Confirm Dialog */
+.confirm-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.confirm-content {
+  background: linear-gradient(135deg, #1a395f, #0b2344);
+  border: 1px solid rgba(76, 138, 210, 0.45);
+  border-radius: 14px;
+  padding: 24px;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  animation: scaleUp 0.2s ease-out;
+}
+
+.confirm-content p {
+  margin: 0 0 20px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.confirm-cancel, .confirm-ok {
+  flex: 1;
+  min-width: 100px;
+}
+
+.confirm-ok {
+  background: linear-gradient(148deg, #ff5a66, #d94355);
+}
+
+.confirm-ok:hover {
+  background: linear-gradient(148deg, #ff6f79, #e15566);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleUp {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ⏳ Loading State */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button:disabled::after {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 💪 Password Strength Meter */
+.password-strength-meter {
+  height: 6px;
+  background: #0a1420;
+  border-radius: 4px;
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(75, 131, 204, 0.3);
+}
+
+.password-strength-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  width: 0%;
+}
+
+.password-strength-weak {
+  width: 25%;
+  background: #ff5a66;
+}
+
+.password-strength-fair {
+  width: 50%;
+  background: #ffa500;
+}
+
+.password-strength-good {
+  width: 75%;
+  background: #47b5ff;
+}
+
+.password-strength-strong {
+  width: 100%;
+  background: #43c4a1;
+}
+
+.password-strength-text {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  color: #b8d0ed;
+}
+
+.password-strength-text.weak { color: #ff5a66; }
+.password-strength-text.fair { color: #ffa500; }
+.password-strength-text.good { color: #47b5ff; }
+.password-strength-text.strong { color: #43c4a1; }
+
+/* ✅ Input Validation Feedback */
+input.input-valid {
+  border-color: #43c4a1;
+  background: rgba(67, 196, 161, 0.05);
+}
+
+input.input-error {
+  border-color: #ff5a66;
+  background: rgba(255, 90, 102, 0.05);
+}
+
+.input-error-message {
+  color: #ff5a66;
+  font-size: 0.8rem;
+  margin-top: 4px;
+  display: none;
+}
+
+.input-error-message.show {
+  display: block;
+}
+
+.input-helper-text {
+  color: #93b8dc;
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+/* ✨ Field Label Enhancement */
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field label {
+  color: #c2d4e7;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.form-field label .required {
+  color: #ff5a66;
+}
+
+/* 📋 Placeholder Enhancement */
+input::placeholder,
+textarea::placeholder,
+select::placeholder {
+  color: #5a7a9e;
+}
+
+/* 🎯 Focus Enhancement */
+input:focus,
+textarea:focus,
+select:focus {
+  background: rgba(14, 28, 58, 0.95);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(71, 181, 255, 0.2);
+}
+
+/* 🚀 Button Loading State */
+button.loading {
+  position: relative;
+  color: transparent;
+}
+
+button.loading::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  top: 50%;
+  left: 50%;
+  margin-left: -7px;
+  margin-top: -7px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+/* 📱 Mobile Responsiveness */
+@media (max-width: 640px) {
+  #notification-container {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+
+  .toast {
+    padding: 12px 14px;
+    font-size: 0.9rem;
+  }
+
+  .confirm-content {
+    margin: 0 20px;
+    max-width: calc(100% - 40px);
+  }
+
+  .confirm-buttons {
+    flex-direction: column;
+  }
+
+  .confirm-cancel,
+  .confirm-ok {
+    min-width: auto;
+  }
+}
+
+/* 🌙 Dark Mode (já está no tema base) */
+.hide {
+  display: none !important;
+}
+
+.show {
+  display: block !important;
+}
+
+/* ♿ Accessibility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Outline para navegação por teclado */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ⚡ Transições Suaves */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+button,
+a,
+input {
+  transition: all 0.2s ease;
+}
+
+/* 🎨 Gradient Button Animations */
+button:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(71, 181, 255, 0.3);
+}
+
+/* Status Messages */
+.status-message {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+  display: none;
+}
+
+.status-message.show {
+  display: block;
+}
+
+.status-success {
+  background: rgba(67, 196, 161, 0.1);
+  border: 1px solid #43c4a1;
+  color: #43c4a1;
+}
+
+.status-error {
+  background: rgba(255, 90, 102, 0.1);
+  border: 1px solid #ff5a66;
+  color: #ff5a66;
+}
+
+.status-warning {
+  background: rgba(255, 165, 0, 0.1);
+  border: 1px solid #ffa500;
+  color: #ffa500;
+}
+
+.status-info {
+  background: rgba(71, 181, 255, 0.1);
+  border: 1px solid #47b5ff;
+  color: #47b5ff;
+}

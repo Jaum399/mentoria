@@ -48,6 +48,63 @@ if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
   });
 }
 
+// 🔐 Validação de Entrada - Funções Auxiliares
+const validators = {
+  // Validar email
+  isValidEmail: (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email) && email.length <= 255;
+  },
+  
+  // Validar força de senha
+  isStrongPassword: (password) => {
+    // Mínimo 8 caracteres, 1 maiúscula, 1 número, 1 caractere especial
+    const regex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    return regex.test(password);
+  },
+  
+  // Validar username
+  isValidUsername: (username) => {
+    // 3-50 caracteres, apenas letras, números, _, -
+    const regex = /^[a-zA-Z0-9_-]{3,50}$/;
+    return regex.test(username) && username.length >= 3 && username.length <= 50;
+  },
+  
+  // Validar telefone brasileiro
+  isValidPhone: (phone) => {
+    // +55 + DDD + 8-9 dígitos
+    const regex = /^\+55\d{2}9?\d{8,9}$/;
+    return regex.test(phone.replace(/[\s-()]/g, ''));
+  },
+  
+  // Validar horário (HH:MM)
+  isValidTime: (time) => {
+    const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    return regex.test(time);
+  },
+  
+  // Validar data ISO (YYYY-MM-DD)
+  isValidDate: (dateStr) => {
+    const regex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!regex.test(dateStr)) return false;
+    const date = new Date(dateStr);
+    return date instanceof Date && !isNaN(date);
+  },
+  
+  // Validar data futura
+  isFutureDate: (dateStr) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    return date > now;
+  },
+  
+  // Limpar e validar string
+  sanitizeString: (str, maxLength = 255) => {
+    if (typeof str !== 'string') return '';
+    return str.trim().substring(0, maxLength);
+  }
+};
+
 // Funções auxiliares para compatibilidade entre SQLite e PostgreSQL
 const runQuery = (query, params = []) => {
   return new Promise((resolve, reject) => {
@@ -463,6 +520,63 @@ const testDatabaseIntegration = () => {
 // Executar teste de integração após 2 segundos
 setTimeout(testDatabaseIntegration, 2000);
 
+// 🔐 Validação de Entrada - Funções Auxiliares
+const validators = {
+  // Validar email
+  isValidEmail: (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email) && email.length <= 255;
+  },
+  
+  // Validar força de senha
+  isStrongPassword: (password) => {
+    // Mínimo 8 caracteres, 1 maiúscula, 1 número, 1 caractere especial
+    const regex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    return regex.test(password);
+  },
+  
+  // Validar username
+  isValidUsername: (username) => {
+    // 3-50 caracteres, apenas letras, números, _, -
+    const regex = /^[a-zA-Z0-9_-]{3,50}$/;
+    return regex.test(username) && username.length >= 3 && username.length <= 50;
+  },
+  
+  // Validar telefone brasileiro
+  isValidPhone: (phone) => {
+    // +55 + DDD + 8-9 dígitos
+    const regex = /^\+55\d{2}9?\d{8,9}$/;
+    return regex.test(phone.replace(/[\s-()]/g, ''));
+  },
+  
+  // Validar horário (HH:MM)
+  isValidTime: (time) => {
+    const regex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    return regex.test(time);
+  },
+  
+  // Validar data ISO (YYYY-MM-DD)
+  isValidDate: (dateStr) => {
+    const regex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!regex.test(dateStr)) return false;
+    const date = new Date(dateStr);
+    return date instanceof Date && !isNaN(date);
+  },
+  
+  // Validar data futura
+  isFutureDate: (dateStr) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    return date > now;
+  },
+  
+  // Limpar e validar string
+  sanitizeString: (str, maxLength = 255) => {
+    if (typeof str !== 'string') return '';
+    return str.trim().substring(0, maxLength);
+  }
+};
+
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token não encontrado.' });
@@ -522,14 +636,37 @@ const getSubscriptionPriceId = async () => {
 };
 
 app.post('/api/register', (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password) return res.status(400).json({ error: 'Campos obrigatórios.' });
+  const { username, email, password, confirmPassword } = req.body;
+  
+  // Validações
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
+  }
+  
+  if (!validators.isValidUsername(username)) {
+    return res.status(400).json({ error: 'Username deve ter 3-50 caracteres (letras, números, _, -).' });
+  }
+  
+  if (!validators.isValidEmail(email)) {
+    return res.status(400).json({ error: 'Email inválido.' });
+  }
+  
+  if (!validators.isStrongPassword(password)) {
+    return res.status(400).json({ error: 'Senha fraca. Mínimo 8 caracteres, 1 maiúscula, 1 número, 1 caractere especial.' });
+  }
+  
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: 'As senhas não coincidem.' });
+  }
 
   const pwdHash = bcrypt.hashSync(password, 10);
   db.run('INSERT INTO users (username, email, password) VALUES (?, ?, ?)', [username, email, pwdHash], function (err) {
     if (err) {
-      const msg = err.message.includes('UNIQUE') ? 'Nome de usuário ou email já existe.' : 'Erro ao criar usuário.';
-      return res.status(400).json({ error: msg });
+      if (err.message.includes('UNIQUE')) {
+        const field = err.message.includes('username') ? 'Username' : 'Email';
+        return res.status(409).json({ error: `${field} já cadastrado.` });
+      }
+      return res.status(500).json({ error: 'Erro ao criar usuário. Tente novamente.' });
     }
     const token = jwt.sign({ id: this.lastID }, process.env.JWT_SECRET || 'supersecreto123', { expiresIn: '30d' });
     res.json({ token, user: { id: this.lastID, username, email } });
@@ -538,7 +675,14 @@ app.post('/api/register', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
+  
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
+  }
+  
+  if (!validators.isValidEmail(email)) {
+    return res.status(400).json({ error: 'Email inválido.' });
+  }
 
   db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
     if (err || !user) return res.status(400).json({ error: 'Usuário não encontrado.' });
