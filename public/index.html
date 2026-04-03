@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mentoria de Estudos</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-container">
+    <header>
+      <h1>Mentoria de Estudos</h1>
+      <p>Seu plano de estudos completo com login, assinatura, calendário e pomodoro.</p>
+    </header>
+
+    <section id="auth-section" class="card">
+      <h2 class="section-title">Acesse sua conta</h2>
+      <div class="form-switch">
+        <button id="show-login" class="active">Login</button>
+        <button id="show-register">Cadastro</button>
+      </div>
+      <div class="social-login">
+        <button id="google-login" class="secondary">Login com Google</button>
+        <button id="phone-login" class="secondary">Login por Telefone</button>
+      </div>
+      <form id="login-form" class="form-grid" aria-label="Formulário de login">
+        <input type="email" id="login-email" placeholder="Email" required />
+        <input type="password" id="login-password" placeholder="Senha" required />
+        <button type="submit">Entrar</button>
+      </form>
+
+      <form id="register-form" class="form-grid hide" aria-label="Formulário de cadastro">
+        <input type="text" id="register-username" placeholder="Nome completo" required />
+        <input type="email" id="register-email" placeholder="Email" required />
+        <input type="password" id="register-password" placeholder="Senha forte" required />
+        <button type="submit">Cadastrar</button>
+      </form>
+
+      <div id="auth-message" class="message"></div>
+    </section>
+
+    <section id="app-section" class="hide">
+      <div class="top-bar card">
+        <span id="user-welcome"></span>
+        <button id="logout-button" class="secondary">Sair</button>
+      </div>
+
+      <nav class="tabs card" aria-label="Navegação de seções">
+        <button data-tab="dashboard" class="active">Dashboard</button>
+        <button data-tab="features">Recursos</button>
+        <button data-tab="plans">Planos</button>
+        <button data-tab="calendar">Calendário</button>
+        <button data-tab="reminders">Lembretes</button>
+        <button data-tab="pomodoro">Pomodoro</button>
+        <button data-tab="medsimples">MedSimples</button>
+        <button data-tab="assinatura">Assinatura</button>
+      </nav>
+
+      <div id="dashboard" class="tab-content active">
+        <div class="section-header"><h2>Dashboard</h2><p>Resumo rápido de estudo e sugestões IA.</p></div>
+        <button id="open-modal" class="secondary" style="margin-bottom:10px;">Abrir painéis rápidos</button>
+        <div class="card">
+          <p id="dashboard-welcome">Carregando dados ...</p>
+          <div class="grid-dashboard">
+            <div class="dash-card"><h3>Planos salvos</h3><p id="dashboard-plans">0</p></div>
+            <div class="dash-card"><h3>Eventos</h3><p id="dashboard-events">0</p></div>
+            <div class="dash-card"><h3>Lembretes</h3><p id="dashboard-reminders">0</p></div>
+            <div class="dash-card"><h3>Medicamentos</h3><p id="dashboard-meds">0</p></div>
+          </div>
+          <div class="ai-plan card">
+            <h4>Sugestão de plano com IA</h4>
+            <p id="ai-suggestion" class="muted">Peça uma sugestão inteligente.</p>
+            <div class="ai-controls">
+              <input id="ai-objective" placeholder="Objetivo (ex: aprender React)" />
+              <input id="ai-time" placeholder="Tempo disponível (ex: 70)" />
+              <input id="ai-slot" placeholder="Horário (ex: noite)" />
+              <button id="ai-button" class="secondary">Gerar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="features" class="tab-content">
+        <div class="section-header"><h2>Recursos Mentoris</h2><p>Veja comparativos e valor dos recursos em um único lugar.</p></div>
+        <div class="features-grid">
+          <article class="feature-card">
+            <h3>Plano Inteligente</h3>
+            <p>Auto-ajuste de meta diário com IA, rotinas e análise de progresso.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Pomodoro Premium</h3>
+            <p>Timer personalizado, ciclos flexíveis, alertas sonoros e curva de foco.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Calendário Adaptativo</h3>
+            <p>Eventos e lembretes sincronizados, com visão semanal / mensal.</p>
+          </article>
+          <article class="feature-card">
+            <h3>Assinatura Única</h3>
+            <p>R$ 39,90/mês, recursos completos, suporte e upgrades constantes.</p>
+          </article>
+        </div>
+        <div class="feature-compare card">
+          <h4>Por que Mentoris?</h4>
+          <ul>
+            <li><strong>Menos passos, mais foco</strong> — centraliza tudo em abas leves.</li>
+            <li><strong>Produtividade maior</strong> — integra pomodoro + metas + lembrete.</li>
+            <li><strong>Controle financeiro</strong> — proposta R$39,90 fixo para todas as categorias.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="plans" class="tab-content">
+        <div class="section-header"><h2>Planos de Estudo</h2><p>Crie e acompanhe seus objetivos de estudo todos os dias.</p></div>
+        <form id="plan-form" class="card form-grid">
+          <input type="text" id="plan-title" placeholder="Título do plano" required />
+          <textarea id="plan-content" placeholder="Detalhes do plano" rows="4" required></textarea>
+          <button type="submit">Salvar Plano</button>
+        </form>
+        <div id="plan-list" class="plan-list"></div>
+      </div>
+
+      <div id="calendar" class="tab-content">
+        <div class="section-header"><h2>Calendário</h2><p>Gerencie seus compromissos e revisões de conteúdo.</p></div>
+        <form id="calendar-form" class="card form-grid">
+          <input type="text" id="event-title" placeholder="Título do evento" required />
+          <input type="date" id="event-date" required />
+          <textarea id="event-desc" placeholder="Descrição" rows="2"></textarea>
+          <button type="submit">Adicionar Evento</button>
+        </form>
+        <div id="event-list" class="plan-list"></div>
+      </div>
+
+      <div id="reminders" class="tab-content">
+        <div class="section-header"><h2>Lembretes</h2><p>Organize lembretes de estudo e receba alertas visuais.</p></div>
+        <form id="reminder-form" class="card form-grid">
+          <input type="text" id="reminder-title" placeholder="Título do lembrete" required />
+          <input type="datetime-local" id="reminder-datetime" required />
+          <textarea id="reminder-message" placeholder="Mensagem (opcional)" rows="2"></textarea>
+          <button type="submit">Salvar Lembrete</button>
+        </form>
+        <div id="reminder-list" class="plan-list"></div>
+      </div>
+
+      <div id="pomodoro" class="tab-content">
+        <div class="section-header"><h2>Pomodoro</h2><p>Use técnicas de foco para aumentar sua produtividade.</p></div>
+        <div class="pomodoro-card card">
+          <div id="timer-display" class="timer">25:00</div>
+          <div class="pomodoro-controls">
+            <button id="start-btn">Iniciar</button>
+            <button id="pause-btn">Pausar</button>
+            <button id="reset-btn">Reiniciar</button>
+          </div>
+          <div class="pomodoro-options">
+            <label>Trabalho<input type="number" id="work-minutes" value="25" min="5" max="120" /></label>
+            <label>Descanso<input type="number" id="break-minutes" value="5" min="1" max="60" /></label>
+          </div>
+          <div class="pomodoro-log card">
+            <p><strong>Histórico</strong></p>
+            <ul id="pomodoro-history"></ul>
+          </div>
+        </div>
+      </div>
+
+      <div id="medsimples" class="tab-content">
+        <div class="section-header"><h2>MedSimples</h2><p>Gerencie medicamentos e lembretes de doses com integração Mentoris.</p></div>
+        <form id="med-form" class="card form-grid">
+          <input type="text" id="med-name" placeholder="Nome do medicamento" required />
+          <input type="text" id="med-dosage" placeholder="Dosagem (ex: 500mg)" required />
+          <input type="text" id="med-schedule" placeholder="Horário (ex: 08:00, 20:00)" required />
+          <textarea id="med-notes" placeholder="Notas (opcional)" rows="2"></textarea>
+          <button type="submit">Salvar medicamento</button>
+        </form>
+        <div class="card" style="margin-top: 10px; display:flex; gap:8px; align-items:center;">
+          <button id="import-meds" class="secondary">Importar MedSimples</button>
+          <span id="med-import-msg" class="message"></span>
+        </div>
+        <div id="med-list" class="plan-list" style="margin-top: 10px;"></div>
+        <div class="card" style="margin-top: 10px;">
+          <h3>Histórico de Doses Tomadas</h3>
+          <div id="med-log-list" class="plan-list"></div>
+        </div>
+      </div>
+
+      <div id="assinatura" class="tab-content">
+        <div class="section-header"><h2>Assinatura</h2><p>Valide seu acesso a recursos exclusivos via assinatura mensal.</p></div>
+        <div class="subscription-panel card">
+          <div class="plans-grid">
+            <button class="sub-plan" data-plan="Basico">Básico - R$ 39,90/mês</button>
+            <button class="sub-plan" data-plan="Intensivo">Intensivo - R$ 39,90/mês</button>
+            <button class="sub-plan" data-plan="Premium">Premium - R$ 39,90/mês</button>
+          </div>
+          <button id="pay-stripe" class="secondary">Ir ao Stripe (assinatura)</button>
+          <button id="cancel-subscription" class="secondary" style="margin-top:8px;">Cancelar assinatura</button>
+          <button id="subscribe-push" class="secondary">Ativar push</button>
+          <button id="send-notification" class="secondary">Enviar notificação teste</button>
+          <div id="subscription-message" class="message"></div>
+          <div id="subscription-status" class="message" style="margin-top:8px; font-weight:700;"></div>
+        </div>
+        <div id="subscription-history" class="plan-list" style="margin-top:12px;"></div>
+        <div id="onboarding-overlay" class="onboarding hide">
+          <div class="onboarding-box">
+            <h3>Bem-vindo à Mentoria de Estudos</h3>
+            <p>Explore o painel, crie lembretes, execute pomodoro e mantenha sua assinatura ativa.</p>
+            <button id="onboarding-close" class="secondary">Começar</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal-overlay" class="modal-overlay hide"></div>
+  <div id="quick-modal" class="modal hide" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-desc">
+    <div class="modal-card">
+      <h3 id="modal-title">Central de gestão rápida</h3>
+      <p id="modal-desc">Navegue para recursos, veja status de assinatura e execute comandos instantâneos.</p>
+      <div class="modal-buttons">
+        <button id="goto-plans" class="secondary">Ver Planos</button>
+        <button id="goto-calendar" class="secondary">Calendário</button>
+        <button id="goto-reminders" class="secondary">Lembretes</button>
+      </div>
+      <button id="close-modal" class="btn-close">✕</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
