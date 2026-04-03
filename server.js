@@ -3,7 +3,6 @@ const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const session = require('express-session');
@@ -12,138 +11,315 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const webpush = require('web-push');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_0000000000000000000000000000');
 
+// Inicializar Express app
 const app = express();
-app.use(express.json());
+
+// Configurações do Express
 app.use(cors());
-app.use(express.static('public'));
-app.use(session({ secret: process.env.SESSION_SECRET || 'sessaoSuperSecreta', resave: false, saveUninitialized: false }));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false
+}));
 app.use(passport.initialize());
 app.use(passport.session());
 
-const spaRoutes = ['/','/dashboard','/plans','/calendar','/reminders','/pomodoro','/assinatura'];
-app.get(spaRoutes, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Servir arquivos estáticos
+app.use(express.static(path.join(__dirname, 'public')));
 
-const db = new sqlite3.Database('./db.sqlite', err => {
-  if (err) console.error('SQLite error:', err);
-  else console.log('SQLite conectado.');
-});
+// Configuração do banco de dados
+let db;
+if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
+  // PostgreSQL para produção (Vercel)
+  const { Pool } = require('pg');
+  db = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+  console.log('PostgreSQL conectado (produção).');
+} else {
+  // SQLite para desenvolvimento
+  const sqlite3 = require('sqlite3').verbose();
+  db = new sqlite3.Database('./db.sqlite', err => {
+    if (err) console.error('SQLite error:', err);
+    else console.log('SQLite conectado (desenvolvimento).');
+  });
+}
 
-const createTables = () => {
-  // Criar tabela users primeiro (referenciada por outras)
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    email TEXT UNIQUE,
-    password TEXT,
-    stripe_customer_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  // Criar outras tabelas que referenciam users
-  db.run(`CREATE TABLE IF NOT EXISTS study_plans (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    title TEXT,
-    content TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS calendar_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    title TEXT,
-    date TEXT,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS subscriptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    status TEXT,
-    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME,
-    plan TEXT,
-    amount INTEGER,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS pomodoro_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    duration INTEGER,
-    type TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS reminders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    title TEXT,
-    date_time TEXT,
-    message TEXT,
-    completed INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS medications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    name TEXT,
-    dosage TEXT,
-    schedule TEXT,
-    active INTEGER DEFAULT 1,
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS medication_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    medication_id INTEGER,
-    taken_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    notes TEXT,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-    FOREIGN KEY (medication_id) REFERENCES medications (id) ON DELETE CASCADE
-  )`);
-
-  db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    endpoint TEXT UNIQUE,
-    keys_auth TEXT,
-    keys_p256dh TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-  )`);
+// Funções auxiliares para compatibilidade entre SQLite e PostgreSQL
+const runQuery = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
+      // PostgreSQL
+      db.query(query, params, (err, result) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    } else {
+      // SQLite
+      db.run(query, params, function(err) {
+        if (err) reject(err);
+        else resolve({ lastID: this.lastID, changes: this.changes });
+      });
+    }
+  });
 };
 
-createTables();
+const getQuery = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
+      // PostgreSQL
+      db.query(query, params, (err, result) => {
+        if (err) reject(err);
+        else resolve(result.rows[0] || null);
+      });
+    } else {
+      // SQLite
+      db.get(query, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    }
+  });
+};
 
-// Verificar se todas as tabelas foram criadas corretamente
-db.all("SELECT name FROM sqlite_master WHERE type='table'", (err, tables) => {
-  if (err) {
-    console.error('Erro ao verificar tabelas:', err);
-  } else {
-    console.log('Tabelas criadas:', tables.map(t => t.name));
-  }
-});
+const allQuery = (query, params = []) => {
+  return new Promise((resolve, reject) => {
+    if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
+      // PostgreSQL
+      db.query(query, params, (err, result) => {
+        if (err) reject(err);
+        else resolve(result.rows);
+      });
+    } else {
+      // SQLite
+      db.all(query, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    }
+  });
+};
 
-// Habilitar foreign keys
-db.run('PRAGMA foreign_keys = ON', (err) => {
-  if (err) {
-    console.warn('Não foi possível habilitar foreign keys:', err.message);
-  } else {
-    console.log('Foreign keys habilitadas');
+const createTables = async () => {
+  try {
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.DATABASE_URL;
+
+    // SQL para criação das tabelas
+    const createUsersTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE,
+        email TEXT UNIQUE,
+        password TEXT,
+        stripe_customer_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        email TEXT UNIQUE,
+        password TEXT,
+        stripe_customer_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`;
+
+    const createStudyPlansTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS study_plans (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT,
+        content TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS study_plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        title TEXT,
+        content TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    const createCalendarEventsTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS calendar_events (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT,
+        date TEXT,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS calendar_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        title TEXT,
+        date TEXT,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    const createSubscriptionsTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        status TEXT,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        plan TEXT,
+        amount INTEGER
+      )` :
+      `CREATE TABLE IF NOT EXISTS subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        status TEXT,
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME,
+        plan TEXT,
+        amount INTEGER,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    const createPomodoroSessionsTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        duration INTEGER,
+        type TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        duration INTEGER,
+        type TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    const createRemindersTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS reminders (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT,
+        date_time TEXT,
+        message TEXT,
+        completed INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        title TEXT,
+        date_time TEXT,
+        message TEXT,
+        completed INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    const createMedicationsTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS medications (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT,
+        dosage TEXT,
+        schedule TEXT,
+        active INTEGER DEFAULT 1,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS medications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        name TEXT,
+        dosage TEXT,
+        schedule TEXT,
+        active INTEGER DEFAULT 1,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    const createMedicationLogsTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS medication_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        medication_id INTEGER REFERENCES medications(id) ON DELETE CASCADE,
+        taken_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT
+      )` :
+      `CREATE TABLE IF NOT EXISTS medication_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        medication_id INTEGER,
+        taken_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY (medication_id) REFERENCES medications (id) ON DELETE CASCADE
+      )`;
+
+    const createPushSubscriptionsTable = isProduction ?
+      `CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        endpoint TEXT UNIQUE,
+        keys_auth TEXT,
+        keys_p256dh TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )` :
+      `CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        endpoint TEXT UNIQUE,
+        keys_auth TEXT,
+        keys_p256dh TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )`;
+
+    // Executar criação das tabelas
+    await runQuery(createUsersTable);
+    await runQuery(createStudyPlansTable);
+    await runQuery(createCalendarEventsTable);
+    await runQuery(createSubscriptionsTable);
+    await runQuery(createPomodoroSessionsTable);
+    await runQuery(createRemindersTable);
+    await runQuery(createMedicationsTable);
+    await runQuery(createMedicationLogsTable);
+    await runQuery(createPushSubscriptionsTable);
+
+    console.log('Tabelas criadas com sucesso.');
+  } catch (error) {
+    console.error('Erro ao criar tabelas:', error);
   }
-});
+};
+
+const initDatabase = async () => {
+  try {
+    await createTables();
+
+    // Verificar se todas as tabelas foram criadas corretamente
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.DATABASE_URL;
+    if (!isProduction) {
+      const tables = await allQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      console.log('Tabelas criadas:', tables.map(t => t.name));
+
+      // Habilitar foreign keys
+      await runQuery('PRAGMA foreign_keys = ON');
+      console.log('Foreign keys habilitadas');
+    } else {
+      console.log('Banco PostgreSQL inicializado');
+    }
+  } catch (error) {
+    console.error('Erro na inicialização do banco:', error);
+  }
+};
+
+initDatabase();
 
 // Função para verificar integridade do banco
 const checkDatabaseIntegrity = () => {
@@ -246,10 +422,34 @@ const testDatabaseIntegration = () => {
                               console.log('🎉 Integração do banco de dados 100% funcional!');
                             }
 
-                            // Limpar dados de teste
-                            db.run('DELETE FROM users WHERE id = ?', [userId], (err8) => {
-                              if (err8) console.error('❌ Erro ao limpar teste:', err8);
-                              else console.log('🧹 Dados de teste removidos');
+                            // Limpar dados de teste (deletar em ordem reversa das dependências)
+                            db.run('DELETE FROM medication_logs WHERE user_id = ?', [userId], (err1) => {
+                              if (err1) console.error('❌ Erro ao limpar medication_logs:', err1);
+                              db.run('DELETE FROM medications WHERE user_id = ?', [userId], (err2) => {
+                                if (err2) console.error('❌ Erro ao limpar medications:', err2);
+                                db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [userId], (err3) => {
+                                  if (err3) console.error('❌ Erro ao limpar push_subscriptions:', err3);
+                                  db.run('DELETE FROM reminders WHERE user_id = ?', [userId], (err4) => {
+                                    if (err4) console.error('❌ Erro ao limpar reminders:', err4);
+                                    db.run('DELETE FROM pomodoro_sessions WHERE user_id = ?', [userId], (err5) => {
+                                      if (err5) console.error('❌ Erro ao limpar pomodoro_sessions:', err5);
+                                      db.run('DELETE FROM subscriptions WHERE user_id = ?', [userId], (err6) => {
+                                        if (err6) console.error('❌ Erro ao limpar subscriptions:', err6);
+                                        db.run('DELETE FROM calendar_events WHERE user_id = ?', [userId], (err7) => {
+                                          if (err7) console.error('❌ Erro ao limpar calendar_events:', err7);
+                                          db.run('DELETE FROM study_plans WHERE user_id = ?', [userId], (err8) => {
+                                            if (err8) console.error('❌ Erro ao limpar study_plans:', err8);
+                                            db.run('DELETE FROM users WHERE id = ?', [userId], (err9) => {
+                                              if (err9) console.error('❌ Erro ao limpar users:', err9);
+                                              else console.log('🧹 Dados de teste removidos');
+                                            });
+                                          });
+                                        });
+                                      });
+                                    });
+                                  });
+                                });
+                              });
                             });
                           });
                         });
