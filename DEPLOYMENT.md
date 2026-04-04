@@ -24,6 +24,7 @@
 4. Configure as variáveis de ambiente:
    - `DATABASE_URL`: URL de conexão do PostgreSQL
    - `STRIPE_SECRET_KEY`: Chave secreta do Stripe
+   - `STRIPE_WEBHOOK_SECRET`: Chave de assinatura do webhook do Stripe
    - `JWT_SECRET`: Chave secreta para JWT
    - `SESSION_SECRET`: Chave secreta para sessão
    - `NODE_ENV`: production

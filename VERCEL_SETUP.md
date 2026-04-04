@@ -110,6 +110,14 @@ Ou gere em: https://www.uuidgenerator.net/
 - [ ] Teste de login funcionando
 - [ ] Webhooks do Stripe configurados (dentro de 24h)
 
+### Variáveis obrigatórias no Vercel
+- `DATABASE_URL`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `JWT_SECRET`
+- `SESSION_SECRET`
+- `NODE_ENV=production`
+
 ## 🛠️ Webhooks do Stripe (Importante!)
 
 **Faça isso após confirmar que o site está funcionando:**

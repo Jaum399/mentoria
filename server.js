@@ -729,7 +729,7 @@ app.post('/api/check-subscription-expirations', authMiddleware, (req, res) => {
   res.json({ message: 'Verificação agendada / executada.' });
 });
 
-app.post('/webhook', bodyParser.raw({ type: 'application/json' }), (req, res) => {
+app.post(['/webhook', '/api/webhook'], bodyParser.raw({ type: 'application/json' }), (req, res) => {
   const sig = req.headers['stripe-signature'];
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   let event;
