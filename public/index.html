@@ -22,6 +22,7 @@
       </div>
       <div class="social-login">
         <button id="google-login" class="secondary">Login com Google</button>
+        <button id="github-login" class="secondary">Login com GitHub</button>
         <button id="phone-login" class="secondary">Login por Telefone</button>
       </div>
       <form id="login-form" class="form-grid" aria-label="Formulário de login">
@@ -225,6 +226,11 @@
     </div>
   </div>
 
+  <script>
+    window.API_BASE_URL = '';
+    // Defina o URL do backend Vercel aqui para deploy do frontend no Netlify.
+    // Exemplo: window.API_BASE_URL = 'https://seu-backend.vercel.app';
+  </script>
   <script src="app-enhanced.js"></script>
 </body>
 </html>

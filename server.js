@@ -8,14 +8,19 @@ const cors = require('cors');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const GitHubStrategy = require('passport-github2').Strategy;
 const webpush = require('web-push');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_0000000000000000000000000000');
+
+const FRONTEND_URL = process.env.FRONTEND_URL || null;
+const DATABASE_URL = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || null;
+const USE_POSTGRES = process.env.NODE_ENV === 'production' || !!DATABASE_URL;
 
 // Inicializar Express app
 const app = express();
 
 // Configurações do Express
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
@@ -31,13 +36,61 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Configuração do banco de dados
 let db;
-if (process.env.NODE_ENV === 'production' || process.env.DATABASE_URL) {
-  // PostgreSQL para produção (Vercel)
+if (USE_POSTGRES) {
+  // PostgreSQL para produção (Vercel / Neon)
   const { Pool } = require('pg');
   db = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
+
+  const normalizePgQuery = (query) => {
+    let index = 0;
+    return query.replace(/\?/g, () => `$${++index}`);
+  };
+
+  const prepareParams = (params) => params || [];
+
+  db.get = (sql, params = [], cb) => {
+    db.query(normalizePgQuery(sql), prepareParams(params))
+      .then(result => cb(null, result.rows[0] || null))
+      .catch(cb);
+  };
+
+  db.all = (sql, params = [], cb) => {
+    db.query(normalizePgQuery(sql), prepareParams(params))
+      .then(result => cb(null, result.rows))
+      .catch(cb);
+  };
+
+  db.run = (sql, params = [], cb = () => {}) => {
+    if (typeof params === 'function') {
+      cb = params;
+      params = [];
+    }
+    const sqlWithReturn = /^\s*INSERT\s+/i.test(sql) && !/RETURNING\s+/i.test(sql)
+      ? `${sql} RETURNING id`
+      : sql;
+
+    db.query(normalizePgQuery(sqlWithReturn), prepareParams(params))
+      .then(result => {
+        const fakeThis = { lastID: result.rows?.[0]?.id, changes: result.rowCount };
+        cb.call(fakeThis, null);
+      })
+      .catch(cb);
+  };
+
+  db.prepare = (sql) => ({
+    run: (params = [], cb = () => {}) => {
+      if (typeof params === 'function') {
+        cb = params;
+        params = [];
+      }
+      db.run(sql, params, cb);
+    },
+    finalize: () => {}
+  });
+
   console.log('PostgreSQL conectado (produção).');
 } else {
   // SQLite para desenvolvimento
@@ -639,11 +692,30 @@ app.post('/api/login', (req, res) => {
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID',
   clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET',
-  callbackURL: '/auth/google/callback'
+  callbackURL: process.env.GOOGLE_CALLBACK_URL || '/auth/google/callback',
+  proxy: true
 }, (accessToken, refreshToken, profile, done) => {
   const email = profile.emails?.[0]?.value;
   const name = profile.displayName || profile.name?.givenName || 'Usuário Google';
   if (!email) return done(new Error('Google não retornou email.'));
+  findOrCreateUserByEmail(email, name, (err, user) => {
+    done(err, user);
+  });
+}));
+
+passport.use(new GitHubStrategy({
+  clientID: process.env.GITHUB_CLIENT_ID || 'YOUR_GITHUB_CLIENT_ID',
+  clientSecret: process.env.GITHUB_CLIENT_SECRET || 'YOUR_GITHUB_CLIENT_SECRET',
+  callbackURL: process.env.GITHUB_CALLBACK_URL || '/auth/github/callback',
+  scope: ['user:email'],
+  proxy: true
+}, (accessToken, refreshToken, profile, done) => {
+  let email = profile.emails?.[0]?.value;
+  if (!email && Array.isArray(profile.emails)) {
+    email = profile.emails.find(e => e.primary)?.value || profile.emails[0]?.value;
+  }
+  const name = profile.username || profile.displayName || 'Usuário GitHub';
+  if (!email) return done(new Error('GitHub não retornou email.'));
   findOrCreateUserByEmail(email, name, (err, user) => {
     done(err, user);
   });
@@ -662,7 +734,17 @@ app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'em
 app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/?login=fail' }), (req, res) => {
   const user = req.user;
   const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'supersecreto123', { expiresIn: '30d' });
-  res.redirect(`/?token=${encodeURIComponent(token)}&username=${encodeURIComponent(user.username)}`);
+  const target = FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+  res.redirect(`${target}/?token=${encodeURIComponent(token)}&username=${encodeURIComponent(user.username)}`);
+});
+
+app.get('/auth/github', passport.authenticate('github', { scope: ['user:email'] }));
+
+app.get('/auth/github/callback', passport.authenticate('github', { failureRedirect: '/?login=fail' }), (req, res) => {
+  const user = req.user;
+  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'supersecreto123', { expiresIn: '30d' });
+  const target = FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+  res.redirect(`${target}/?token=${encodeURIComponent(token)}&username=${encodeURIComponent(user.username)}`);
 });
 
 let vapidPublicKey;
@@ -685,7 +767,12 @@ app.get('/api/vapid-public-key', (req, res) => {
 app.post('/api/save-push-subscription', authMiddleware, (req, res) => {
   const sub = req.body;
   if (!sub || !sub.endpoint) return res.status(400).json({ error: 'Subscription inválido.' });
-  db.run('INSERT OR IGNORE INTO push_subscriptions (user_id, endpoint, keys_auth, keys_p256dh) VALUES (?, ?, ?, ?)', [req.userId, sub.endpoint, sub.keys.auth, sub.keys.p256dh], function (err) {
+
+  const query = USE_POSTGRES
+    ? 'INSERT INTO push_subscriptions (user_id, endpoint, keys_auth, keys_p256dh) VALUES (?, ?, ?, ?) ON CONFLICT (endpoint) DO NOTHING'
+    : 'INSERT OR IGNORE INTO push_subscriptions (user_id, endpoint, keys_auth, keys_p256dh) VALUES (?, ?, ?, ?)';
+
+  db.run(query, [req.userId, sub.endpoint, sub.keys.auth, sub.keys.p256dh], function (err) {
     if (err) return res.status(500).json({ error: 'Erro ao salvar subscription.' });
     res.json({ success: true });
   });
@@ -970,14 +1057,15 @@ app.post('/api/create-checkout-session', authMiddleware, async (req, res) => {
   const { plan } = req.body;
   const priceMap = { Basico: 1900, Intensivo: 2900, Premium: 4900 };
   const amount = priceMap[plan] || 1900;
+  const frontendUrl = FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
       line_items: [{ price_data: { currency: 'brl', product_data: { name: `Assinatura ${plan}` }, unit_amount: amount }, quantity: 1 }],
-      success_url: `${req.protocol}://${req.get('host')}?checkout=success`,
-      cancel_url: `${req.protocol}://${req.get('host')}?checkout=cancel`
+      success_url: `${frontendUrl}/?checkout=success`,
+      cancel_url: `${frontendUrl}/?checkout=cancel`
     });
     res.json({ url: session.url });
   } catch (error) {
@@ -989,6 +1077,7 @@ app.post('/api/create-checkout-session', authMiddleware, async (req, res) => {
 app.post('/api/create-subscription-session', authMiddleware, async (req, res) => {
   const { plan } = req.body;
   const priceId = await getSubscriptionPriceId();
+  const frontendUrl = FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
   if (!priceId) {
     return res.status(500).json({ error: 'Não foi possível identificar o preço de assinatura. Configure STRIPE_SUBSCRIPTION_PRICE_ID.' });
@@ -1003,8 +1092,8 @@ app.post('/api/create-subscription-session', authMiddleware, async (req, res) =>
         payment_method_types: ['card'],
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${req.protocol}://${req.get('host')}?checkout=success`,
-        cancel_url: `${req.protocol}://${req.get('host')}?checkout=cancel`
+        success_url: `${frontendUrl}/?checkout=success`,
+        cancel_url: `${frontendUrl}/?checkout=cancel`
       });
 
       const expires = new Date();

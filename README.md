@@ -36,9 +36,45 @@ Site de estudos e gestão de medicamentos com:
 ## Instalação
 
 1. `npm install`
-2. Configure `.env` com chaves Stripe (opcional) e JWT
+2. Configure `.env` com chaves Stripe, JWT, Google OAuth e FRONTEND_URL
 3. `npm start`
 4. Acesse `http://localhost:8080`
+
+## Deploy em Produção
+
+- Frontend: publique a pasta `public` no Netlify.
+- Backend: faça deploy do `server.js` no Vercel.
+- No Netlify, defina `window.API_BASE_URL` em `public/index.html` para o endereço do backend Vercel.
+- No Vercel, defina as variáveis de ambiente:
+  - `DATABASE_URL` ou `NEON_DATABASE_URL`
+  - `JWT_SECRET`
+  - `SESSION_SECRET`
+  - `STRIPE_SECRET_KEY`
+  - `STRIPE_WEBHOOK_SECRET`
+  - `STRIPE_SUBSCRIPTION_PRICE_ID` (recomendado)
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  - `GOOGLE_CALLBACK_URL`
+  - `GITHUB_CLIENT_ID`
+  - `GITHUB_CLIENT_SECRET`
+  - `GITHUB_CALLBACK_URL`
+  - `FRONTEND_URL`
+
+## Notas de produção
+
+- O GitHub deve usar callback em:
+  `https://<seu-backend>.vercel.app/auth/github/callback`
+- A aplicação agora oferece login Google e GitHub.
+
+- Para Neon, use a string de conexão PostgreSQL do painel Neon.
+- A URL que começa com `https://...neonauth...` é a página de login do Neon, não a conexão do banco.
+- O formato correto é algo como:
+  `postgresql://USER:PASSWORD@HOST/neondb?sslmode=require`
+- Em Vercel, defina `DATABASE_URL` ou `NEON_DATABASE_URL` com esse valor.
+
+- `GOOGLE_CALLBACK_URL` deve apontar para `https://<seu-backend>.vercel.app/auth/google/callback`
+- `FRONTEND_URL` deve apontar para a URL do site Netlify, para redirecionos de login OAuth e Stripe.
+- O Netlify deve servir apenas o frontend estático; todas as APIs são chamadas para o backend Vercel.
 
 ## API
 

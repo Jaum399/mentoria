@@ -98,6 +98,27 @@ const notify = {
   info: (msg) => notify.show(msg, 'info')
 };
 
+if (oauthToken) {
+  token = oauthToken;
+  localStorage.setItem('token', token);
+  if (oauthUsername) {
+    currentUsername = oauthUsername;
+    localStorage.setItem('username', currentUsername);
+  }
+  notify.success(`Login realizado como ${currentUsername}.`);
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+if (checkoutStatus === 'success') {
+  notify.success('Pagamento concluído com sucesso!');
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+if (checkoutStatus === 'cancel') {
+  notify.error('Pagamento cancelado.');
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
 function createNotificationContainer() {
   const container = document.createElement('div');
   container.id = 'notification-container';
@@ -213,6 +234,7 @@ const aiSlot = document.getElementById('ai-slot');
 const aiButton = document.getElementById('ai-button');
 
 const googleLoginBtn = document.getElementById('google-login');
+const githubLoginBtn = document.getElementById('github-login');
 const phoneLoginBtn = document.getElementById('phone-login');
 
 const planButtons = document.querySelectorAll('.sub-plan');
@@ -225,6 +247,12 @@ const onboardingClose = document.getElementById('onboarding-close');
 let token = localStorage.getItem('token') || null;
 let currentUsername = localStorage.getItem('username') || 'Usuário';
 let activePlan = 'Basico';
+const API_BASE_URL = (window.API_BASE_URL || '').replace(/\/$/, '');
+
+const urlSearch = new URLSearchParams(window.location.search);
+const oauthToken = urlSearch.get('token');
+const oauthUsername = urlSearch.get('username');
+const checkoutStatus = urlSearch.get('checkout');
 
 // ✨ Enhanced setMessage com cores
 function setMessage(el, text, color = '#47b5ff') {
@@ -239,11 +267,12 @@ async function api(path, method = 'GET', body) {
     method,
     headers: { 'Content-Type': 'application/json' }
   };
+  const url = API_BASE_URL ? `${API_BASE_URL}${path}` : path;
   if (token) opts.headers.Authorization = `Bearer ${token}`;
   if (body) opts.body = JSON.stringify(body);
 
   try {
-    const result = await fetch(path, opts);
+    const result = await fetch(url, opts);
     const data = await result.json();
     
     if (!result.ok) {
@@ -266,6 +295,20 @@ async function api(path, method = 'GET', body) {
     }
     throw err;
   }
+}
+
+if (googleLoginBtn) {
+  googleLoginBtn.addEventListener('click', () => {
+    const redirectUrl = API_BASE_URL ? `${API_BASE_URL}/auth/google` : '/auth/google';
+    window.location.href = redirectUrl;
+  });
+}
+
+if (githubLoginBtn) {
+  githubLoginBtn.addEventListener('click', () => {
+    const redirectUrl = API_BASE_URL ? `${API_BASE_URL}/auth/github` : '/auth/github';
+    window.location.href = redirectUrl;
+  });
 }
 
 function showTab(name) {
