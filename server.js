@@ -496,8 +496,10 @@ const checkDatabaseIntegrity = () => {
   });
 };
 
-// Executar verificação de integridade
-setTimeout(checkDatabaseIntegrity, 1000);
+// Executar verificação de integridade apenas em desenvolvimento
+if (!USE_POSTGRES) {
+  setTimeout(checkDatabaseIntegrity, 1000);
+}
 
 // Função para testar integração completa do banco
 const testDatabaseIntegration = () => {
@@ -613,8 +615,10 @@ const testDatabaseIntegration = () => {
     });
 };
 
-// Executar teste de integração após 2 segundos
-setTimeout(testDatabaseIntegration, 2000);
+// Executar teste de integração apenas em desenvolvimento
+if (!USE_POSTGRES) {
+  setTimeout(testDatabaseIntegration, 2000);
+}
 
 // JWKS setup for Neon Auth token verification
 const jwksUrl = process.env.NEON_JWKS_URL;
