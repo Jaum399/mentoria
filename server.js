@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { createRemoteJWKSet, jwtVerify } = require('jose');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const session = require('express-session');
@@ -10,7 +11,13 @@ const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const GitHubStrategy = require('passport-github2').Strategy;
 const webpush = require('web-push');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_0000000000000000000000000000');
+const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+const stripe = require('stripe')(stripeKey || 'sk_test_0000000000000000000000000000');
+const STRIPE_CHECKOUT_LINK = process.env.STRIPE_CHECKOUT_LINK || null;
+
+if (!stripeKey || stripeKey.startsWith('sk_test_0000000000000000000000000000')) {
+  console.warn('Stripe secret key missing or placeholder. Stripe payment routes require a valid STRIPE_SECRET_KEY in environment or a STRIPE_CHECKOUT_LINK fallback.');
+}
 
 const FRONTEND_URL = process.env.FRONTEND_URL || null;
 const DATABASE_URL = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL || null;
@@ -280,7 +287,10 @@ const createTables = async () => {
         started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP,
         plan TEXT,
-        amount INTEGER
+        amount INTEGER,
+        stripe_session_id TEXT,
+        stripe_subscription_id TEXT,
+        stripe_customer_id TEXT
       )` :
       `CREATE TABLE IF NOT EXISTS subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,6 +300,9 @@ const createTables = async () => {
         expires_at DATETIME,
         plan TEXT,
         amount INTEGER,
+        stripe_session_id TEXT,
+        stripe_subscription_id TEXT,
+        stripe_customer_id TEXT,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
       )`;
 
@@ -408,9 +421,37 @@ const createTables = async () => {
   }
 };
 
+const migrateSubscriptionColumns = async () => {
+  try {
+    const alterStatements = USE_POSTGRES ? [
+      'ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_session_id TEXT',
+      'ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT',
+      'ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT'
+    ] : [
+      'ALTER TABLE subscriptions ADD COLUMN stripe_session_id TEXT',
+      'ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id TEXT',
+      'ALTER TABLE subscriptions ADD COLUMN stripe_customer_id TEXT'
+    ];
+
+    for (const statement of alterStatements) {
+      try {
+        await runQuery(statement);
+      } catch (migrationError) {
+        // Ignore if column already exists or the database does not support IF NOT EXISTS
+        if (!migrationError.message.includes('duplicate column name') && !migrationError.message.includes('already exists')) {
+          console.warn('Migração de coluna do Stripe falhou:', migrationError.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao migrar tabela subscriptions:', err.message);
+  }
+};
+
 const initDatabase = async () => {
   try {
     await createTables();
+    await migrateSubscriptionColumns();
 
     // Verificar se todas as tabelas foram criadas corretamente
     const isProduction = process.env.NODE_ENV === 'production' || process.env.DATABASE_URL;
@@ -573,15 +614,41 @@ const testDatabaseIntegration = () => {
 // Executar teste de integração após 2 segundos
 setTimeout(testDatabaseIntegration, 2000);
 
+// JWKS setup for Neon Auth token verification
+const jwksUrl = process.env.NEON_JWKS_URL;
+let jwksClient = null;
+if (jwksUrl) {
+  jwksClient = createRemoteJWKSet(new URL(jwksUrl));
+}
+
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token não encontrado.' });
 
-  jwt.verify(token, process.env.JWT_SECRET || 'supersecreto123', (err, data) => {
-    if (err) return res.status(401).json({ error: 'Token inválido.' });
-    req.userId = data.id;
-    next();
-  });
+  // Try JWKS verification first if available, fallback to secret
+  if (jwksClient) {
+    jwtVerify(token, jwksClient)
+      .then(({ payload }) => {
+        req.userId = payload.sub || payload.id;
+        next();
+      })
+      .catch((err) => {
+        console.log('JWKS verification failed, trying secret:', err.message);
+        // Fallback to secret-based verification
+        jwt.verify(token, process.env.JWT_SECRET || 'supersecreto123', (err, data) => {
+          if (err) return res.status(401).json({ error: 'Token inválido.' });
+          req.userId = data.id;
+          next();
+        });
+      });
+  } else {
+    // Use secret-based verification
+    jwt.verify(token, process.env.JWT_SECRET || 'supersecreto123', (err, data) => {
+      if (err) return res.status(401).json({ error: 'Token inválido.' });
+      req.userId = data.id;
+      next();
+    });
+  }
 };
 
 const findOrCreateUserByEmail = (email, username, callback) => {
@@ -625,10 +692,15 @@ const getSubscriptionPriceId = async () => {
     return null;
   }
 
-  const product = await stripe.products.create({ name: 'Mentoria Mensal', metadata: { app: 'estudo-mentorias' } });
-  const price = await stripe.prices.create({ product: product.id, unit_amount: 3990, currency: 'brl', recurring: { interval: 'month' } });
-  subscriptionPriceId = price.id;
-  return subscriptionPriceId;
+  try {
+    const product = await stripe.products.create({ name: 'Mentoria Mensal', metadata: { app: 'estudo-mentorias' } });
+    const price = await stripe.prices.create({ product: product.id, unit_amount: 3990, currency: 'brl', recurring: { interval: 'month' } });
+    subscriptionPriceId = price.id;
+    return subscriptionPriceId;
+  } catch (err) {
+    console.error('Erro ao criar produto/preço Stripe:', err?.raw?.message || err.message || err);
+    return null;
+  }
 };
 
 app.post('/api/register', (req, res) => {
@@ -1059,52 +1131,139 @@ app.post('/api/create-checkout-session', authMiddleware, async (req, res) => {
   const amount = priceMap[plan] || 1900;
   const frontendUrl = FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
+  if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith('sk_test_0000000000000000000000000000')) {
+    if (STRIPE_CHECKOUT_LINK) {
+      const separator = STRIPE_CHECKOUT_LINK.includes('?') ? '&' : '?';
+      const url = `${STRIPE_CHECKOUT_LINK}${separator}plan=${encodeURIComponent(plan || 'Basico')}`;
+      return res.json({ url, fallback: true });
+    }
+    return res.status(500).json({ error: 'Stripe não está configurado corretamente. Configure STRIPE_SECRET_KEY válida.' });
+  }
+
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
-      line_items: [{ price_data: { currency: 'brl', product_data: { name: `Assinatura ${plan}` }, unit_amount: amount }, quantity: 1 }],
-      success_url: `${frontendUrl}/?checkout=success`,
+      line_items: [{ price_data: { currency: 'brl', product_data: { name: `Assinatura ${plan || 'Basico'}` }, unit_amount: amount }, quantity: 1 }],
+      success_url: `${frontendUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}&plan=${encodeURIComponent(plan || 'Basico')}`,
       cancel_url: `${frontendUrl}/?checkout=cancel`
     });
     res.json({ url: session.url });
   } catch (error) {
     console.error('Stripe checkout', error);
-    res.status(500).json({ error: 'Falha ao criar sessão de pagamento Stripe.' });
+    const errorMessage = error?.raw?.message || error?.message || 'Falha ao criar sessão de pagamento Stripe.';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
 app.post('/api/create-subscription-session', authMiddleware, async (req, res) => {
   const { plan } = req.body;
-  const priceId = await getSubscriptionPriceId();
+  const selectedPlan = plan || 'Mensal';
   const frontendUrl = FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
+  if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith('sk_test_0000000000000000000000000000')) {
+    if (STRIPE_CHECKOUT_LINK) {
+      const separator = STRIPE_CHECKOUT_LINK.includes('?') ? '&' : '?';
+      const url = `${STRIPE_CHECKOUT_LINK}${separator}plan=${encodeURIComponent(selectedPlan)}`;
+      return res.json({ url, fallback: true });
+    }
+    return res.status(500).json({ error: 'Stripe não está configurado corretamente. Configure STRIPE_SECRET_KEY válida.' });
+  }
+
+  const priceId = await getSubscriptionPriceId();
+
   if (!priceId) {
-    return res.status(500).json({ error: 'Não foi possível identificar o preço de assinatura. Configure STRIPE_SUBSCRIPTION_PRICE_ID.' });
+    return res.status(500).json({ error: 'Não foi possível identificar o preço de assinatura. Defina STRIPE_SUBSCRIPTION_PRICE_ID ou verifique sua chave Stripe.' });
   }
 
   try {
-    db.get('SELECT id, username, email FROM users WHERE id = ?', [req.userId], async (err, user) => {
-      if (err || !user) return res.status(404).json({ error: 'Usuário não encontrado.' });
-      const customerId = await getOrCreateStripeCustomer(user.id, user.email, user.username);
-      const session = await stripe.checkout.sessions.create({
-        customer: customerId,
-        payment_method_types: ['card'],
-        mode: 'subscription',
-        line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${frontendUrl}/?checkout=success`,
-        cancel_url: `${frontendUrl}/?checkout=cancel`
+    const user = await new Promise((resolve, reject) => {
+      db.get('SELECT id, username, email FROM users WHERE id = ?', [req.userId], (err, row) => {
+        if (err) return reject(err);
+        resolve(row);
       });
-
-      const expires = new Date();
-      expires.setMonth(expires.getMonth() + 1);
-      db.run('INSERT INTO subscriptions (user_id, status, expires_at, plan, amount) VALUES (?, ?, ?, ?, ?)', [req.userId, 'pending', expires.toISOString(), plan || 'Mensal', 3990], () => {});
-      res.json({ url: session.url });
     });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    const customerId = await getOrCreateStripeCustomer(user.id, user.email, user.username);
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${frontendUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}&plan=${encodeURIComponent(selectedPlan)}`,
+      cancel_url: `${frontendUrl}/?checkout=cancel`
+    });
+
+    const expires = new Date();
+    expires.setMonth(expires.getMonth() + 1);
+    db.run('UPDATE subscriptions SET status = ? WHERE user_id = ? AND status IN (?, ?)', ['canceled', req.userId, 'active', 'pending'], () => {});
+    db.run('INSERT INTO subscriptions (user_id, status, expires_at, plan, amount, stripe_session_id, stripe_customer_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [req.userId, 'pending', expires.toISOString(), selectedPlan, 3990, session.id, customerId], () => {});
+    res.json({ url: session.url });
   } catch (error) {
     console.error('Stripe subscription', error);
-    res.status(500).json({ error: 'Falha ao criar sessão de assinatura Stripe.' });
+    const errorMessage = error?.raw?.message || error?.message || 'Falha ao criar sessão de assinatura Stripe.';
+    res.status(500).json({ error: errorMessage });
   }
+});
+
+app.post('/api/confirm-subscription', authMiddleware, async (req, res) => {
+  const { session_id, plan } = req.body;
+  const selectedPlan = plan || 'Mensal';
+
+  if (session_id) {
+    if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.startsWith('sk_test_0000000000000000000000000000')) {
+      return res.status(400).json({ error: 'Stripe não está configurado para confirmar a sessão.' });
+    }
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(session_id, { expand: ['subscription', 'customer'] });
+      if (!session || !session.payment_status) {
+        return res.status(400).json({ error: 'Sessão Stripe inválida.' });
+      }
+
+      const isPaid = session.payment_status === 'paid';
+      const sub = session.subscription;
+      const stripeCustomerId = typeof session.customer === 'object' ? session.customer.id : session.customer;
+      const stripeSubscriptionId = sub?.id || null;
+      const expires = sub ? new Date(sub.current_period_end * 1000) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const status = isPaid ? 'active' : 'pending';
+
+      db.run('UPDATE users SET stripe_customer_id = ? WHERE id = ?', [stripeCustomerId, req.userId], () => {});
+      db.run('UPDATE subscriptions SET status = ? WHERE user_id = ? AND status IN (?, ?)', ['canceled', req.userId, 'active', 'pending'], () => {});
+      db.run('INSERT INTO subscriptions (user_id, status, expires_at, plan, amount, stripe_subscription_id, stripe_customer_id, stripe_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [req.userId, status, expires.toISOString(), selectedPlan, 3990, stripeSubscriptionId, stripeCustomerId, session.id], function (err) {
+          if (err) {
+            console.error('Erro ao salvar confirmação de assinatura:', err);
+          }
+        });
+
+      return res.json({ success: true, status, expires_at: expires.toISOString() });
+    } catch (error) {
+      console.error('Falha ao confirmar subscrição Stripe:', error);
+      const errorMessage = error?.raw?.message || error?.message || 'Erro ao confirmar assinatura.';
+      return res.status(500).json({ error: errorMessage });
+    }
+  }
+
+  if (STRIPE_CHECKOUT_LINK) {
+    const expires = new Date();
+    expires.setMonth(expires.getMonth() + 1);
+    db.run('UPDATE subscriptions SET status = ? WHERE user_id = ? AND status IN (?, ?)', ['canceled', req.userId, 'active', 'pending'], () => {});
+    db.run('INSERT INTO subscriptions (user_id, status, expires_at, plan, amount) VALUES (?, ?, ?, ?, ?)', [req.userId, 'active', expires.toISOString(), selectedPlan, 3990], function (err) {
+      if (err) {
+        console.error('Erro ao salvar assinatura fallback:', err);
+        return res.status(500).json({ error: 'Erro ao salvar assinatura.' });
+      }
+      return res.json({ success: true, status: 'active', expires_at: expires.toISOString() });
+    });
+    return;
+  }
+
+  res.status(400).json({ error: 'session_id ausente e fallback Stripe não configurado.' });
 });
 
 // Login com Google/telefone

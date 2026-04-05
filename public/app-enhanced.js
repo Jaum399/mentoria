@@ -1,4 +1,8 @@
 // 🎯 Validadores Frontend - Espelham validações do servidor
+import { inject } from '@vercel/analytics'
+
+// Inject Vercel Analytics
+inject()
 const clientValidators = {
   isValidEmail: (email) => {
     const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -253,6 +257,157 @@ const urlSearch = new URLSearchParams(window.location.search);
 const oauthToken = urlSearch.get('token');
 const oauthUsername = urlSearch.get('username');
 const checkoutStatus = urlSearch.get('checkout');
+const checkoutSessionId = urlSearch.get('session_id');
+const checkoutPlan = urlSearch.get('plan');
+
+if (oauthToken) {
+  token = oauthToken;
+  localStorage.setItem('token', token);
+  if (oauthUsername) {
+    currentUsername = oauthUsername;
+    localStorage.setItem('username', currentUsername);
+  }
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+function setActivePlan(plan) {
+  activePlan = plan;
+  planButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.plan === plan));
+  if (subscriptionMessage) {
+    subscriptionMessage.textContent = `Plano selecionado: ${plan}`;
+  }
+}
+
+async function loadSubscriptionStatus() {
+  if (!subscriptionStatus) return;
+  try {
+    const resp = await api('/api/subscription-status');
+    if (resp.status === 'active') {
+      subscriptionStatus.textContent = `Assinatura ativa: ${resp.plan || 'Mensal'} até ${resp.expires_at ? new Date(resp.expires_at).toLocaleDateString() : 'indefinido'}`;
+      subscriptionMessage.textContent = `Plano ativo: ${resp.plan || 'Mensal'}`;
+    } else {
+      subscriptionStatus.textContent = 'Nenhuma assinatura ativa encontrada.';
+      subscriptionMessage.textContent = 'Escolha um plano para assinar.';
+    }
+  } catch (err) {
+    subscriptionStatus.textContent = 'Não foi possível verificar o status da assinatura.';
+  }
+}
+
+async function loadSubscriptionHistory() {
+  if (!subscriptionHistory) return;
+  try {
+    const resp = await api('/api/subscriptions');
+    subscriptionHistory.innerHTML = resp.subscriptions?.length
+      ? resp.subscriptions.map(sub => `<div class="plan-card"><strong>${sub.plan}</strong> · ${sub.status} · ${new Date(sub.expires_at).toLocaleDateString()}</div>`).join('')
+      : '<p>Nenhuma assinatura encontrada.</p>';
+  } catch (err) {
+    subscriptionHistory.innerHTML = '<p>Não foi possível carregar o histórico de assinaturas.</p>';
+  }
+}
+
+async function loadPlans() {
+  if (!planList) return;
+  try {
+    const resp = await api('/api/my-plans');
+    planList.innerHTML = resp.plans?.length
+      ? resp.plans.map(plan => `<div class="plan-card"><h3>${plan.title}</h3><p>${plan.content}</p><small>Criado em ${new Date(plan.created_at).toLocaleDateString()}</small></div>`).join('')
+      : '<p>Nenhum plano salvo ainda.</p>';
+    dashboardPlans.textContent = resp.plans?.length || 0;
+  } catch (err) {
+    planList.innerHTML = '<p>Erro ao carregar seus planos.</p>';
+    dashboardPlans.textContent = '0';
+  }
+}
+
+async function loadCalendarEvents() {
+  if (!eventList) return;
+  try {
+    const resp = await api('/api/calendar-events');
+    eventList.innerHTML = resp.events?.length
+      ? resp.events.map(event => `<div class="plan-card"><h3>${event.title}</h3><p>${event.description || ''}</p><small>${new Date(event.date).toLocaleString()}</small></div>`).join('')
+      : '<p>Nenhum evento encontrado.</p>';
+    dashboardEvents.textContent = resp.events?.length || 0;
+  } catch (err) {
+    eventList.innerHTML = '<p>Erro ao carregar eventos.</p>';
+    dashboardEvents.textContent = '0';
+  }
+}
+
+async function loadReminders() {
+  if (!reminderList) return;
+  try {
+    const resp = await api('/api/reminders');
+    reminderList.innerHTML = resp.reminders?.length
+      ? resp.reminders.map(reminder => `<div class="plan-card"><strong>${reminder.title}</strong><p>${reminder.message}</p><small>${new Date(reminder.date_time).toLocaleString()}</small></div>`).join('')
+      : '<p>Nenhum lembrete encontrado.</p>';
+    dashboardReminders.textContent = resp.reminders?.length || 0;
+  } catch (err) {
+    reminderList.innerHTML = '<p>Erro ao carregar lembretes.</p>';
+    dashboardReminders.textContent = '0';
+  }
+}
+
+async function loadMedications() {
+  if (!medList) return;
+  try {
+    const resp = await api('/api/medications');
+    medList.innerHTML = resp.medications?.length
+      ? resp.medications.map(med => `<div class="plan-card"><h3>${med.name}</h3><p>${med.dosage} · ${med.schedule}</p><small>${med.notes || ''}</small></div>`).join('')
+      : '<p>Nenhum medicamento registrado.</p>';
+    dashboardMeds.textContent = resp.medications?.length || 0;
+    medLogList.innerHTML = resp.medications?.length
+      ? resp.medications.map(med => `<li>${med.name}: ${med.schedule} (${med.dosage})</li>`).join('')
+      : '<li>Nenhum registro.</li>';
+  } catch (err) {
+    medList.innerHTML = '<p>Erro ao carregar medicamentos.</p>';
+    dashboardMeds.textContent = '0';
+    medLogList.innerHTML = '<li>Erro ao carregar histórico.</li>';
+  }
+}
+
+async function initializeApp() {
+  authSection.classList.add('hide');
+  appSection.classList.remove('hide');
+  userWelcome.textContent = `Bem-vindo, ${currentUsername}!`;
+  notify.success(`Bem-vindo de volta, ${currentUsername}!`);
+  setActivePlan(activePlan);
+  await handleCheckoutReturn();
+  await Promise.all([
+    loadSubscriptionStatus(),
+    loadSubscriptionHistory(),
+    loadPlans(),
+    loadCalendarEvents(),
+    loadReminders(),
+    loadMedications()
+  ]);
+}
+
+if (planButtons.length) {
+  planButtons.forEach(btn => btn.addEventListener('click', () => setActivePlan(btn.dataset.plan)));
+}
+
+if (payStripe) {
+  payStripe.addEventListener('click', async () => {
+    if (!token) {
+      notify.error('Faça login para iniciar o pagamento.');
+      return;
+    }
+    loadingStates.setLoading(payStripe, true);
+    try {
+      const resp = await api('/api/create-subscription-session', 'POST', { plan: activePlan });
+      if (resp.url) {
+        window.location.href = resp.url;
+        return;
+      }
+      notify.error(resp.error || 'Não foi possível iniciar o pagamento.');
+    } catch (err) {
+      notify.error(err.error || 'Erro ao iniciar assinatura.');
+    } finally {
+      loadingStates.setLoading(payStripe, false);
+    }
+  });
+}
 
 // ✨ Enhanced setMessage com cores
 function setMessage(el, text, color = '#47b5ff') {
@@ -294,6 +449,39 @@ async function api(path, method = 'GET', body) {
       throw { error: 'Sem conexão' };
     }
     throw err;
+  }
+}
+
+async function handleCheckoutReturn() {
+  if (checkoutStatus === 'cancel') {
+    notify.error('Pagamento cancelado.');
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return;
+  }
+
+  if (checkoutStatus !== 'success') return;
+  if (!token) {
+    notify.info('Pagamento aprovado. Faça login para finalizar sua assinatura.');
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return;
+  }
+
+  try {
+    const resp = await api('/api/confirm-subscription', 'POST', {
+      session_id: checkoutSessionId,
+      plan: checkoutPlan || activePlan
+    });
+
+    if (resp.success) {
+      notify.success('Assinatura confirmada com sucesso!');
+      await Promise.all([loadSubscriptionStatus(), loadSubscriptionHistory()]);
+    } else {
+      notify.warning(resp.error || 'Pagamento aprovado, mas não foi possível confirmar a assinatura.');
+    }
+  } catch (err) {
+    notify.error(err.error || 'Erro ao confirmar assinatura.');
+  } finally {
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 }
 
