@@ -3,7 +3,9 @@ const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { createRemoteJWKSet, jwtVerify } = require('jose');
+let jose = null;
+let jwksClient = null;
+let jwksClientPromise = null;
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const session = require('express-session');
@@ -616,38 +618,47 @@ setTimeout(testDatabaseIntegration, 2000);
 
 // JWKS setup for Neon Auth token verification
 const jwksUrl = process.env.NEON_JWKS_URL;
-let jwksClient = null;
 if (jwksUrl) {
-  jwksClient = createRemoteJWKSet(new URL(jwksUrl));
+  jwksClientPromise = import('jose')
+    .then((mod) => {
+      jose = mod;
+      jwksClient = jose.createRemoteJWKSet(new URL(jwksUrl));
+    })
+    .catch((err) => {
+      console.error('Falha ao carregar jose para JWKS:', err);
+      jwksClientPromise = null;
+      jwksClient = null;
+    });
 }
 
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token não encontrado.' });
 
-  // Try JWKS verification first if available, fallback to secret
-  if (jwksClient) {
-    jwtVerify(token, jwksClient)
+  const verifyWithSecret = () => {
+    jwt.verify(token, process.env.JWT_SECRET || 'supersecreto123', (err, data) => {
+      if (err) return res.status(401).json({ error: 'Token inválido.' });
+      req.userId = data.id;
+      next();
+    });
+  };
+
+  if (jwksClientPromise) {
+    jwksClientPromise
+      .then(() => {
+        if (!jwksClient || !jose) throw new Error('JWKS client não inicializado');
+        return jose.jwtVerify(token, jwksClient);
+      })
       .then(({ payload }) => {
         req.userId = payload.sub || payload.id;
         next();
       })
       .catch((err) => {
         console.log('JWKS verification failed, trying secret:', err.message);
-        // Fallback to secret-based verification
-        jwt.verify(token, process.env.JWT_SECRET || 'supersecreto123', (err, data) => {
-          if (err) return res.status(401).json({ error: 'Token inválido.' });
-          req.userId = data.id;
-          next();
-        });
+        verifyWithSecret();
       });
   } else {
-    // Use secret-based verification
-    jwt.verify(token, process.env.JWT_SECRET || 'supersecreto123', (err, data) => {
-      if (err) return res.status(401).json({ error: 'Token inválido.' });
-      req.userId = data.id;
-      next();
-    });
+    verifyWithSecret();
   }
 };
 
