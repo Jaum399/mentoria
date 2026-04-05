@@ -1,8 +1,5 @@
 // 🎯 Validadores Frontend - Espelham validações do servidor
-import { inject } from '@vercel/analytics'
-
-// Inject Vercel Analytics
-inject()
+// Vercel Analytics não deve ser importado diretamente sem bundler.
 const clientValidators = {
   isValidEmail: (email) => {
     const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
