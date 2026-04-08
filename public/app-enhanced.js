@@ -99,27 +99,6 @@ const notify = {
   info: (msg) => notify.show(msg, 'info')
 };
 
-if (oauthToken) {
-  token = oauthToken;
-  localStorage.setItem('token', token);
-  if (oauthUsername) {
-    currentUsername = oauthUsername;
-    localStorage.setItem('username', currentUsername);
-  }
-  notify.success(`Login realizado como ${currentUsername}.`);
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
-
-if (checkoutStatus === 'success') {
-  notify.success('Pagamento concluído com sucesso!');
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
-
-if (checkoutStatus === 'cancel') {
-  notify.error('Pagamento cancelado.');
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
-
 function createNotificationContainer() {
   const container = document.createElement('div');
   container.id = 'notification-container';
@@ -793,14 +772,6 @@ if (cancelSubscriptionBtn) {
       }
     }
   });
-}
-
-// Importar validações do servidor
-function initializeApp() {
-  authSection.classList.add('hide');
-  appSection.classList.remove('hide');
-  userWelcome.textContent = `Bem-vindo, ${currentUsername}!`;
-  notify.success(`Bem-vindo de volta, ${currentUsername}!`);
 }
 
 // Inicializar
