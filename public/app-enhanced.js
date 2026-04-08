@@ -463,15 +463,13 @@ async function handleCheckoutReturn() {
 
 if (googleLoginBtn) {
   googleLoginBtn.addEventListener('click', () => {
-    const redirectUrl = API_BASE_URL ? `${API_BASE_URL}/auth/google` : '/auth/google';
-    window.location.href = redirectUrl;
+    import('./auth-client.js').then(({ authClient }) => authClient.signInSocial('google'));
   });
 }
 
 if (githubLoginBtn) {
   githubLoginBtn.addEventListener('click', () => {
-    const redirectUrl = API_BASE_URL ? `${API_BASE_URL}/auth/github` : '/auth/github';
-    window.location.href = redirectUrl;
+    import('./auth-client.js').then(({ authClient }) => authClient.signInSocial('github'));
   });
 }
 
